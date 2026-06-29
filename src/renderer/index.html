@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>MyExplorer</title>
+  <link rel="stylesheet" href="styles/main.css"/>
+</head>
+<body>
+  <div id="app">
+    <!-- 左：クイックアクセス -->
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-heading">クイックアクセス</div>
+        <ul id="quick-list"></ul>
+        <div class="sidebar-add" id="quick-add-btn" title="現在のフォルダを追加">＋ 追加</div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">ドライブ</div>
+        <ul id="drive-list"></ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">場所</div>
+        <ul id="special-list">
+          <li data-special="downloads">⬇ ダウンロード</li>
+          <li data-special="desktop">🖥 デスクトップ</li>
+          <li data-special="trash">🗑 ゴミ箱</li>
+        </ul>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">テーマ</div>
+        <div id="theme-list">
+          <div class="theme-swatch" data-theme-value="light" title="白"><span class="swatch-dot swatch-light"></span></div>
+          <div class="theme-swatch" data-theme-value="gray" title="薄いグレー"><span class="swatch-dot swatch-gray"></span></div>
+          <div class="theme-swatch" data-theme-value="dark" title="紺"><span class="swatch-dot swatch-dark"></span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央：4ペイン -->
+    <main id="pane-area">
+      <div class="pane-row">
+        <div class="pane" id="pane-0"></div>
+        <div class="pane-divider-v"></div>
+        <div class="pane" id="pane-1"></div>
+      </div>
+      <div class="pane-divider-h"></div>
+      <div class="pane-row">
+        <div class="pane" id="pane-2"></div>
+        <div class="pane-divider-v"></div>
+        <div class="pane" id="pane-3"></div>
+      </div>
+    </main>
+
+    <!-- 右：プレビュー -->
+    <aside id="preview-panel" class="hidden">
+      <div id="preview-header">
+        <span id="preview-title">プレビュー</span>
+        <button id="preview-close">✕</button>
+      </div>
+      <div id="preview-content"></div>
+    </aside>
+  </div>
+
+  <!-- プレビュー開くボタン（閉じてるとき） -->
+  <button id="preview-toggle-btn" class="visible" title="プレビューを開く">▶</button>
+
+  <script src="app.js"></script>
+</body>
+</html>
