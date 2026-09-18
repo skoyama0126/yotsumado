@@ -1,11 +1,11 @@
 {
-  "name": "myexplorer",
-  "version": "0.1.0",
-  "description": "自分好みのファイルエクスプローラー",
+  "name": "yotsumado",
+  "version": "1.0.0",
+  "description": "ヨツマド — 4つのペインで使うWindows向けファイルエクスプローラー",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-builder --win --x64"
   },
   "devDependencies": {
     "electron": "^28.0.0",
@@ -13,13 +13,19 @@
   },
   "build": {
     "appId": "com.myexplorer.app",
-    "productName": "MyExplorer",
+    "productName": "ヨツマド",
+    "files": [
+      "src/**/*",
+      "build/icon.ico"
+    ],
     "win": {
+      "executableName": "Yotsumado",
       "target": "nsis",
       "icon": "build/icon.ico",
       "signAndEditExecutable": false
     },
     "nsis": {
+      "artifactName": "Yotsumado-Setup-${version}-win-${arch}.${ext}",
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "language": "1041"

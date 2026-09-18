@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════
-//  MyExplorer — renderer/app.js
+//  ヨツマド (Yotsumado) — renderer/app.js
 //  Java20年の人向けコメント：各クラスの責務が明確になるよう設計
 // ═══════════════════════════════════════════════════════
 
@@ -16,6 +16,7 @@ let specialPaths = {};
 let quickAccess  = JSON.parse(localStorage.getItem('quickAccess') || '[]');
 let activePaneId = 0;
 let previewOpen  = false;
+let toolPaths    = JSON.parse(localStorage.getItem('toolPaths') || '{}'); // 外部ツールのexeパス（サクラエディタ等）
 let clipboardItem = null; // { path, cut }
 
 /**
@@ -270,6 +271,135 @@ async function deleteEntry(paneId, entry) {
   const res = await window.api.deletePath(entry.fullPath);
   if (res && res.error) alert(`削除に失敗しました: ${res.error}`);
   await refreshPane(paneId);
+}
+
+// ── 外部ツール連携（サクラエディタ・TortoiseGitなど） ──
+// 一度選んだexeパスはlocalStorageに記憶し、次回以降は聞かない
+async function getToolPath(key, autoFind) {
+  if (toolPaths[key]) return toolPaths[key];
+  if (autoFind) {
+    const found = await autoFind();
+    if (found) {
+      toolPaths[key] = found;
+      localStorage.setItem('toolPaths', JSON.stringify(toolPaths));
+      return found;
+    }
+  }
+  const picked = await window.api.pickExePath();
+  if (picked) {
+    toolPaths[key] = picked;
+    localStorage.setItem('toolPaths', JSON.stringify(toolPaths));
+  }
+  return picked;
+}
+
+async function openWithSakura(entry) {
+  const exe = await getToolPath('sakura');
+  if (!exe) return;
+  const res = await window.api.runExe(exe, [entry.fullPath]);
+  if (res && res.error) alert(`サクラエディタの起動に失敗しました: ${res.error}`);
+}
+
+async function runTortoiseGit(command, targetPath) {
+  const exe = await getToolPath('tortoiseGitProc', () => window.api.findTortoiseGit());
+  if (!exe) return;
+  const res = await window.api.runExe(exe, [`/command:${command}`, `/path:${targetPath}`]);
+  if (res && res.error) alert(`TortoiseGitの起動に失敗しました: ${res.error}`);
+}
+
+// Electronでは window.prompt() が使えないため、カスタムダイアログを使う
+function showInputDialog(label, defaultValue) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('input-dialog-overlay');
+    const field   = document.getElementById('input-dialog-field');
+    const labelEl = document.getElementById('input-dialog-label');
+    const btnOk   = document.getElementById('input-dialog-ok');
+    const btnCcl  = document.getElementById('input-dialog-cancel');
+
+    labelEl.textContent = label;
+    field.value = defaultValue;
+    overlay.style.display = 'flex';
+    field.focus();
+    field.select();
+
+    function finish(value) {
+      overlay.style.display = 'none';
+      btnOk.removeEventListener('click', onOk);
+      btnCcl.removeEventListener('click', onCancel);
+      field.removeEventListener('keydown', onKey);
+      resolve(value);
+    }
+    function onOk()     { finish(field.value.trim() || null); }
+    function onCancel() { finish(null); }
+    function onKey(e) {
+      if (e.key === 'Enter')  { e.preventDefault(); finish(field.value.trim() || null); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+    }
+    btnOk.addEventListener('click', onOk);
+    btnCcl.addEventListener('click', onCancel);
+    field.addEventListener('keydown', onKey);
+  });
+}
+
+async function createNewFolder(paneId, currentPath) {
+  const name = await showInputDialog('フォルダ名を入力してください', '新しいフォルダ');
+  if (!name) return;
+  const newPath = currentPath.replace(/[/\\]+$/, '') + '\\' + name;
+  const res = await window.api.createDir(newPath);
+  if (res && res.error) { alert(`フォルダ作成に失敗しました: ${res.error}`); return; }
+  await navigateTo(paneId, currentPath, false);
+}
+
+async function createNewTextFile(paneId, currentPath) {
+  const name = await showInputDialog('ファイル名を入力してください', '新しいテキスト.txt');
+  if (!name) return;
+  const newPath = currentPath.replace(/[/\\]+$/, '') + '\\' + name;
+  const res = await window.api.createFile(newPath);
+  if (res && res.error) { alert(`ファイル作成に失敗しました: ${res.error}`); return; }
+  await navigateTo(paneId, currentPath, false);
+}
+
+// 空白部分の右クリックメニュー（何も選択していない状態）
+function buildEmptyAreaCtxMenuItems(paneId, tab) {
+  return [
+    { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
+    { sep: true },
+    { label: '📁 フォルダ新規作成', action: () => createNewFolder(paneId, tab.path) },
+    { label: '📄 テキストファイル新規作成', action: () => createNewTextFile(paneId, tab.path) },
+    { sep: true },
+    { label: '🌳 Git コミット...', action: () => runTortoiseGit('commit', tab.path) },
+    { label: '🌳 Git ログ', action: () => runTortoiseGit('log', tab.path) },
+    { label: '🌳 Git 差分', action: () => runTortoiseGit('diff', tab.path) },
+    { label: '🌳 Git Pull', action: () => runTortoiseGit('pull', tab.path) },
+    { label: '🌳 Git Push', action: () => runTortoiseGit('push', tab.path) },
+    { label: '🌳 Git 同期', action: () => runTortoiseGit('sync', tab.path) },
+  ];
+}
+
+// ファイル行の右クリックメニュー項目（行そのもの／選択中アイテムへの空白部分右クリックの両方で使う）
+function buildFileCtxMenuItems(paneId, tab, entry) {
+  const isText = !entry.isDir && TEXT_EXTS.has(extOf(entry.name));
+  const items = [];
+  if (isText) {
+    items.push({ label: '📝 サクラエディタで開く', action: () => openWithSakura(entry) });
+    items.push({ sep: true });
+  }
+  items.push(
+    { label: '📋 コピー', action: () => { clipboardItem = { path: entry.fullPath, cut: false }; } },
+    { label: '✂ 切り取り', action: () => { clipboardItem = { path: entry.fullPath, cut: true }; } },
+    { sep: true },
+    { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
+    { sep: true },
+    { label: '🗑 削除', action: () => deleteEntry(paneId, entry) },
+    { sep: true },
+    { label: '🌳 Git コミット...', action: () => runTortoiseGit('commit', entry.fullPath) },
+    { label: '🌳 Git ログ', action: () => runTortoiseGit('log', entry.fullPath) },
+    { label: '🌳 Git 差分', action: () => runTortoiseGit('diff', entry.fullPath) },
+    { label: '🌳 Git Pull', action: () => runTortoiseGit('pull', entry.fullPath) },
+    { label: '🌳 Git Push', action: () => runTortoiseGit('push', entry.fullPath) },
+    { label: '🌳 Git 同期', action: () => runTortoiseGit('sync', entry.fullPath) },
+  );
+  return items;
 }
 
 async function goUp(paneId) {
@@ -535,10 +665,12 @@ function renderPane(paneId) {
   const btnBack    = makeBtn('◀', () => goBack(paneId));
   const btnFwd     = makeBtn('▶', () => goForward(paneId));
   const btnUp      = makeBtn('↑', () => goUp(paneId));
-  const btnRefresh = makeBtn('⟳', () => refreshPane(paneId));
+  const btnRefresh   = makeBtn('⟳', () => refreshPane(paneId));
+  const btnNewFolder = makeBtn('＋', () => createNewFolder(paneId, tab.path));
   btnBack.disabled = tab.historyIdx <= 0;
   btnFwd.disabled  = tab.historyIdx >= tab.history.length - 1;
-  btnRefresh.title = '更新';
+  btnRefresh.title   = '更新';
+  btnNewFolder.title = 'フォルダ新規作成';
 
   const input = document.createElement('input');
   input.className = 'addr-input';
@@ -586,6 +718,7 @@ function renderPane(paneId) {
   addr.appendChild(btnFwd);
   addr.appendChild(btnUp);
   addr.appendChild(btnRefresh);
+  addr.appendChild(btnNewFolder);
   addr.appendChild(breadcrumb);
   addr.appendChild(input);
   el.appendChild(addr);
@@ -687,21 +820,14 @@ function renderPane(paneId) {
       else await window.api.openFile(entry.fullPath);
     });
 
-    // 右クリックメニュー（コピー・切り取り・貼り付け・削除）
+    // 右クリックメニュー（コピー・切り取り・貼り付け・削除・外部ツール）
     tr.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
       setActivePane(paneId);
       tab.selectedIdx = idx;
       renderPane(paneId);
-      showCtxMenu(e.clientX, e.clientY, [
-        { label: '📋 コピー', action: () => { clipboardItem = { path: entry.fullPath, cut: false }; } },
-        { label: '✂ 切り取り', action: () => { clipboardItem = { path: entry.fullPath, cut: true }; } },
-        { sep: true },
-        { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
-        { sep: true },
-        { label: '🗑 削除', action: () => deleteEntry(paneId, entry) },
-      ]);
+      showCtxMenu(e.clientX, e.clientY, buildFileCtxMenuItems(paneId, tab, entry));
     });
 
     tbody.appendChild(tr);
@@ -717,15 +843,13 @@ function renderPane(paneId) {
     wrap.appendChild(table);
   }
 
-  // 空白部分の右クリック → 貼り付けのみ
+  // 空白部分の右クリック → 常に空白エリアメニュー（新規作成・貼り付け・TortoiseGit）
   wrap.addEventListener('contextmenu', (e) => {
     if (e.target.closest('tr')) return; // 行はtr側のハンドラに任せる
     e.preventDefault();
     e.stopPropagation();
     setActivePane(paneId);
-    showCtxMenu(e.clientX, e.clientY, [
-      { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
-    ]);
+    showCtxMenu(e.clientX, e.clientY, buildEmptyAreaCtxMenuItems(paneId, tab));
   });
 
   el.appendChild(wrap);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
-  <title>MyExplorer</title>
+  <title>ヨツマド</title>
   <link rel="stylesheet" href="styles/main.css"/>
 </head>
 <body>
@@ -11,9 +11,11 @@
     <!-- 左：クイックアクセス -->
     <aside id="sidebar">
       <div class="sidebar-section">
-        <div class="sidebar-heading">クイックアクセス</div>
+        <div class="sidebar-heading-row">
+          <div class="sidebar-heading">クイックアクセス</div>
+          <button type="button" class="sidebar-add" id="quick-add-btn" title="現在のフォルダを追加">＋ 追加</button>
+        </div>
         <ul id="quick-list"></ul>
-        <div class="sidebar-add" id="quick-add-btn" title="現在のフォルダを追加">＋ 追加</div>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-heading">ドライブ</div>
@@ -64,6 +66,18 @@
 
   <!-- プレビュー開くボタン（閉じてるとき） -->
   <button id="preview-toggle-btn" class="visible" title="プレビューを開く">▶</button>
+
+  <!-- インライン入力ダイアログ -->
+  <div id="input-dialog-overlay" style="display:none">
+    <div id="input-dialog">
+      <div id="input-dialog-label"></div>
+      <input id="input-dialog-field" type="text"/>
+      <div id="input-dialog-btns">
+        <button id="input-dialog-ok">OK</button>
+        <button id="input-dialog-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

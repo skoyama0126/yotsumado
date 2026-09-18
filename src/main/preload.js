@@ -11,4 +11,9 @@ contextBridge.exposeInMainWorld('api', {
   copyPath:      (src, destDir) => ipcRenderer.invoke('copy-path', src, destDir),
   movePath:      (src, destDir) => ipcRenderer.invoke('move-path', src, destDir),
   deletePath:    (p) => ipcRenderer.invoke('delete-path', p),
+  pickExePath:   () => ipcRenderer.invoke('pick-exe-path'),
+  runExe:        (exePath, args) => ipcRenderer.invoke('run-exe', exePath, args),
+  findTortoiseGit: () => ipcRenderer.invoke('find-tortoisegit'),
+  createDir:  (p) => ipcRenderer.invoke('create-dir', p),
+  createFile: (p) => ipcRenderer.invoke('create-file', p),
 });

@@ -1,6 +1,13 @@
-# MyExplorer
+# ヨツマド (Yotsumado)
 
-自分好みのファイルエクスプローラー（Electron製・Windows向け）
+4つのペインでフォルダを行き来できる、自分好みのファイルエクスプローラー（Electron製・Windows向け）。旧名称は MyExplorer です。
+
+## 対応環境・インストール
+
+- **Windows専用（64bit / x64）**です。macOS・Linuxには対応していません。
+- 配布用インストーラー：[Yotsumado-Setup-1.0.0-win-x64.exe](releases/Yotsumado-Setup-1.0.0-win-x64.exe)
+- ダウンロードしたexeを実行してインストールしてください。配布版の利用にNode.jsは不要です。
+- ファイル名の `win` はWindows用、`x64` は64bit版を表します。
 
 ## レイアウト
 
@@ -14,7 +21,7 @@
 └──────────┴────────────────────────────┴─────────────┘
 ```
 
-## セットアップ
+## 開発用セットアップ（ソースから起動する場合）
 
 ### 必要なもの
 - [Node.js](https://nodejs.org/) v18以上（LTS推奨）
@@ -23,7 +30,7 @@
 
 ```bash
 # 1. このフォルダに入る
-cd myexplorer
+cd smart-explorer
 
 # 2. 依存パッケージをインストール
 npm install
@@ -36,7 +43,7 @@ npm start
 
 ```bash
 npm run build
-# → dist/ フォルダにインストーラが生成されます
+# → dist/Yotsumado-Setup-1.0.0-win-x64.exe が生成されます
 ```
 
 ---
