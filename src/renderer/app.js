@@ -360,6 +360,32 @@ async function createNewTextFile(paneId, currentPath) {
 }
 
 // 空白部分の右クリックメニュー（何も選択していない状態）
+async function showFileSystemMenu(event, paneId, tab, entry) {
+  closeCtxMenu();
+  // Alt+右クリックでは従来のヨツマド用メニューを表示する。
+  const fallback = () => showCtxMenu(event.clientX, event.clientY,
+    entry ? buildFileCtxMenuItems(paneId, tab, entry) : buildEmptyAreaCtxMenuItems(paneId, tab));
+  if (event.altKey) { fallback(); return; }
+  try {
+    const result = await window.api.showShellMenu(entry ? entry.fullPath : tab.path, !entry);
+    if (result.error) throw new Error(result.error);
+    if (result.canceled) return;
+    if (result.action === 'rename' && entry) {
+      const name = await showInputDialog('新しい名前を入力してください', entry.name);
+      if (name && name !== entry.name) {
+        const renamed = await window.api.renamePath(entry.fullPath, name);
+        if (renamed.error) alert(`名前の変更に失敗しました: ${renamed.error}`);
+      }
+    } else if (result.action === 'open' && entry) {
+      await navigateTo(paneId, entry.fullPath);
+    }
+    await Promise.all(panes.map(pane => refreshPane(pane.id)));
+  } catch (error) {
+    alert(`Windowsメニューを表示できませんでした: ${error.message}\nヨツマド用メニューを表示します。`);
+    fallback();
+  }
+}
+
 function buildEmptyAreaCtxMenuItems(paneId, tab) {
   return [
     { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
@@ -827,7 +853,7 @@ function renderPane(paneId) {
       setActivePane(paneId);
       tab.selectedIdx = idx;
       renderPane(paneId);
-      showCtxMenu(e.clientX, e.clientY, buildFileCtxMenuItems(paneId, tab, entry));
+      showFileSystemMenu(e, paneId, tab, entry);
     });
 
     tbody.appendChild(tr);
@@ -849,7 +875,7 @@ function renderPane(paneId) {
     e.preventDefault();
     e.stopPropagation();
     setActivePane(paneId);
-    showCtxMenu(e.clientX, e.clientY, buildEmptyAreaCtxMenuItems(paneId, tab));
+    showFileSystemMenu(e, paneId, tab, null);
   });
 
   el.appendChild(wrap);
