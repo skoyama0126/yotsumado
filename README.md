@@ -5,7 +5,7 @@
 ## 対応環境・インストール
 
 - **Windows専用（64bit / x64）**です。macOS・Linuxには対応していません。
-- 配布用インストーラー：[Yotsumado-Setup-1.0.0-win-x64.exe](releases/Yotsumado-Setup-1.0.0-win-x64.exe)
+- 配布用インストーラー：[Yotsumado-Setup-1.0.1-win-x64.exe](releases/Yotsumado-Setup-1.0.1-win-x64.exe)
 - ダウンロードしたexeを実行してインストールしてください。配布版の利用にNode.jsは不要です。
 - ファイル名の `win` はWindows用、`x64` は64bit版を表します。
 
@@ -43,7 +43,7 @@ npm start
 
 ```bash
 npm run build
-# → dist/Yotsumado-Setup-1.0.0-win-x64.exe が生成されます
+# → dist/Yotsumado-Setup-1.0.1-win-x64.exe が生成されます
 ```
 
 ---
@@ -55,6 +55,8 @@ npm run build
 |------|------|
 | シングルクリック | ファイル選択 + プレビュー |
 | ダブルクリック | フォルダを開く / ファイルを既定アプリで開く |
+| ファイル・フォルダ・一覧の空白を右クリック | Windowsの従来型コンテキストメニューを表示（項目は対象・インストール済みソフトによって異なります） |
+| Alt + 右クリック | ヨツマド独自のメニューを表示 |
 | タブ右クリック | ロック・ロック解除・タブを閉じる |
 | 「ロック以外削除」ボタン | ロックしていないタブを一括削除 |
 | 🔒 アイコン | ロック済みタブの目印 |

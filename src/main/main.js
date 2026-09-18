@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron')
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const APP_ID = 'com.myexplorer.app';
 
 // 改名前の保存先を維持し、クイックアクセス・タブ・テーマの設定を引き継ぐ。
@@ -38,6 +38,44 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+// Windows Shellのメニューを別プロセスで表示する（7-Zipなどの拡張にも対応）。
+let shellMenuRunning = false;
+ipcMain.handle('show-shell-menu', async (_, targetPath, background) => {
+  if (shellMenuRunning) return { canceled: true };
+  if (process.platform !== 'win32') return { error: 'Windows専用の機能です。' };
+  if (typeof targetPath !== 'string' || !path.isAbsolute(targetPath) || !fs.existsSync(targetPath)) {
+    return { error: '対象のファイルまたはフォルダが見つかりません。' };
+  }
+  const helper = app.isPackaged
+    ? path.join(process.resourcesPath, 'native', 'Yotsumado.ShellMenu.exe')
+    : path.join(__dirname, '../../build/native/Yotsumado.ShellMenu.exe');
+  shellMenuRunning = true;
+  try {
+    return await new Promise(resolve => {
+      execFile(helper, [background ? 'background' : 'item', targetPath],
+        { windowsHide: true, encoding: 'utf8' }, (error, stdout, stderr) => {
+          if (error) resolve({ error: stderr.trim() || error.message });
+          else resolve({ action: stdout.replace(/^\uFEFF/, '').trim() });
+        });
+    });
+  } finally { shellMenuRunning = false; }
+});
+
+ipcMain.handle('rename-path', async (_, source, name) => {
+  try {
+    if (typeof source !== 'string' || !path.isAbsolute(source)) throw new Error('パスが不正です');
+    if (typeof name !== 'string' || !name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) ||
+        /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) throw new Error('使えない名前です');
+    const destination = path.join(path.dirname(source), name);
+    if (destination === source) return { ok: true };
+    if (fs.existsSync(destination) && destination.toLowerCase() !== source.toLowerCase()) {
+      throw new Error('同じ名前のファイルまたはフォルダが既にあります');
+    }
+    fs.renameSync(source, destination);
+    return { ok: true };
+  } catch (error) { return { error: error.message }; }
+});
 
 // ─── IPC handlers ────────────────────────────────────────────────────────────
 

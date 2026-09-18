@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  showShellMenu: (p, background) => ipcRenderer.invoke('show-shell-menu', p, background),
+  renamePath: (p, name) => ipcRenderer.invoke('rename-path', p, name),
   readDir:       (p) => ipcRenderer.invoke('read-dir', p),
   getDrives:     ()  => ipcRenderer.invoke('get-drives'),
   getSpecialPaths: () => ipcRenderer.invoke('get-special-paths'),
