@@ -54,6 +54,14 @@ body {
   height: 100vh;
   overflow: hidden;
   user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ── Layout ── */
@@ -117,13 +125,30 @@ body {
 }
 #sidebar li:hover .remove-quick { opacity: 1; }
 
+.sidebar-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 8px 6px 12px;
+}
+
+.sidebar-heading-row .sidebar-heading {
+  padding: 0;
+  white-space: nowrap;
+}
+
 .sidebar-add {
-  margin: 4px 8px 0;
-  padding: 4px 8px;
+  flex-shrink: 0;
+  padding: 3px 4px;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
   color: var(--accent2);
   cursor: pointer;
+  font-family: inherit;
   font-size: 11px;
+  white-space: nowrap;
 }
 .sidebar-add:hover { background: var(--bg4); }
 
@@ -498,6 +523,8 @@ body {
   border-radius: 6px;
   padding: 4px 0;
   min-width: 160px;
+  max-height: 80vh;
+  overflow-y: auto;
   z-index: 9999;
   box-shadow: 0 8px 24px rgba(0,0,0,.5);
 }
@@ -509,6 +536,40 @@ body {
 }
 #ctx-menu .ctx-item:hover { background: var(--accent); }
 #ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
+/* Input dialog */
+#input-dialog-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+}
+#input-dialog {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  min-width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+  display: flex; flex-direction: column; gap: 12px;
+}
+#input-dialog-label { color: var(--text); font-size: 13px; }
+#input-dialog-field {
+  width: 100%; box-sizing: border-box;
+  padding: 6px 8px; font-size: 13px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  outline: none;
+}
+#input-dialog-field:focus { border-color: var(--accent-text, #4a9eff); }
+#input-dialog-btns { display: flex; gap: 8px; justify-content: flex-end; }
+#input-dialog-btns button {
+  padding: 5px 16px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+}
+#input-dialog-ok { background: var(--accent); color: #fff; border-color: transparent; }
+#input-dialog-ok:hover { opacity: .85; }
+#input-dialog-cancel:hover { background: var(--bg3); }
 
 /* Empty state */
 .empty-state {

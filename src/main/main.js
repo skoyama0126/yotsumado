@@ -1,10 +1,19 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
+const APP_ID = 'com.myexplorer.app';
+
+// 改名前の保存先を維持し、クイックアクセス・タブ・テーマの設定を引き継ぐ。
+app.setPath('userData', path.join(app.getPath('appData'), 'myexplorer'));
 
 // 既定の英語メニューバー（File/Edit/View/Window/Help）は使わない。独自UIで操作するため非表示にする。
 Menu.setApplicationMenu(null);
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_ID);
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -19,7 +28,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    title: 'MyExplorer',
+    title: 'ヨツマド',
     icon: path.join(__dirname, '../../build/icon.ico'),
   });
   win.removeMenu();
@@ -40,12 +49,19 @@ ipcMain.handle('read-dir', async (_, dirPath) => {
       const fullPath = path.join(dirPath, e.name);
       let size = null;
       let mtime = null;
+      // dirent.isDirectory()はシンボリックリンク/ジャンクションの場合追跡せずfalseを返すため、
+      // statSync（リンク先を追跡する）の結果を優先する。Application Data等のジャンクションが
+      // ファイル扱いになり開けなくなる不具合を防ぐ。
       let isDir = e.isDirectory();
       try {
         const stat = fs.statSync(fullPath);
+        isDir = stat.isDirectory();
         size = isDir ? null : stat.size;
         mtime = stat.mtimeMs;
-      } catch (_) {}
+      } catch (_) {
+        // アクセス権がないジャンクション等。シンボリックリンクならフォルダとして扱う。
+        if (e.isSymbolicLink()) isDir = true;
+      }
       return { name: e.name, isDir, size, mtime, fullPath };
     });
   } catch (err) {
@@ -151,4 +167,57 @@ ipcMain.handle('delete-path', async (_, targetPath) => {
   } catch (err) {
     return { error: err.message };
   }
+});
+
+// 外部ツール（サクラエディタ・TortoiseGitなど）の実行ファイルを選択
+ipcMain.handle('pick-exe-path', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '実行ファイルを選択',
+    filters: [{ name: '実行ファイル', extensions: ['exe'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0];
+});
+
+// 任意の外部exeをバックグラウンドで起動（右クリックメニューの「○○で開く」用）
+ipcMain.handle('run-exe', async (_, exePath, args) => {
+  try {
+    spawn(exePath, args, { detached: true, stdio: 'ignore' }).unref();
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// フォルダ新規作成
+ipcMain.handle('create-dir', async (_, dirPath) => {
+  try {
+    fs.mkdirSync(dirPath, { recursive: false });
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// ファイル新規作成（既存の場合はエラー）
+ipcMain.handle('create-file', async (_, filePath) => {
+  try {
+    fs.writeFileSync(filePath, '', { flag: 'wx' });
+    return { ok: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// TortoiseGitProc.exeをよくあるインストール先から探す
+ipcMain.handle('find-tortoisegit', async () => {
+  const candidates = [
+    'C:\\Program Files\\TortoiseGit\\bin\\TortoiseGitProc.exe',
+    'C:\\Program Files (x86)\\TortoiseGit\\bin\\TortoiseGitProc.exe',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
 });
