@@ -20,6 +20,27 @@ internal sealed class ShellMenu : Form
         Console.OutputEncoding = Encoding.UTF8;
         try
         {
+            if (args.Length == 2 && (args[0] == "clipboard-copy" || args[0] == "clipboard-cut"))
+            {
+                string file = Path.GetFullPath(args[1]);
+                if (!File.Exists(file) && !Directory.Exists(file)) throw new FileNotFoundException(file);
+                DataObject data = new DataObject();
+                data.SetData(DataFormats.FileDrop, new string[] { file });
+                data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(args[0] == "clipboard-cut" ? 2 : 1)));
+                Clipboard.SetDataObject(data, true);
+                return 0;
+            }
+            if (args.Length == 2 && args[0] == "clipboard-read")
+            {
+                IDataObject data = Clipboard.GetDataObject();
+                if (data == null || !data.GetDataPresent(DataFormats.FileDrop)) return 0;
+                MemoryStream effect = data.GetData("Preferred DropEffect") as MemoryStream;
+                byte[] bytes = effect == null ? new byte[0] : effect.ToArray();
+                Console.WriteLine(bytes.Length >= 4 && BitConverter.ToInt32(bytes, 0) == 2 ? "cut" : "copy");
+                foreach (string file in (string[])data.GetData(DataFormats.FileDrop))
+                    Console.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(file)));
+                return 0;
+            }
             if ((args.Length != 2 && !(args.Length == 3 && args[2] == "--diagnostic")) || (args[0] != "item" && args[0] != "background"))
                 throw new ArgumentException("Expected item/background and an absolute path.");
             string target = Path.GetFullPath(args[1]);
@@ -106,7 +127,7 @@ internal sealed class ShellMenu : Form
                 return;
             }
             if (command == 0) return;
-            if (!background && Directory.Exists(target))
+            string commandVerb = null;
             {
                 IntPtr verbBuffer = Marshal.AllocHGlobal(1024);
                 try
@@ -114,8 +135,10 @@ internal sealed class ShellMenu : Form
                     Marshal.WriteInt16(verbBuffer, 0);
                     if (menu.GetCommandString(new UIntPtr(command - FirstCommand), 4, IntPtr.Zero, verbBuffer, 512) == 0)
                     {
-                        string verb = Marshal.PtrToStringUni(verbBuffer);
-                        if (verb == "open" || verb == "explore") { Console.WriteLine("open"); return; }
+                        commandVerb = Marshal.PtrToStringUni(verbBuffer);
+                        if (!background && Directory.Exists(target) && (commandVerb == "open" || commandVerb == "explore"))
+                        { Console.WriteLine("open"); return; }
+                        if (commandVerb == "rename") { Console.WriteLine("rename"); return; }
                     }
                 }
                 finally { Marshal.FreeHGlobal(verbBuffer); }
@@ -130,6 +153,12 @@ internal sealed class ShellMenu : Form
             invoke.nShow = 1;
             invoke.ptInvoke = point;
             Marshal.ThrowExceptionForHR(menu.InvokeCommand(ref invoke));
+            if (commandVerb == "copy" || commandVerb == "cut")
+            {
+                // The clipboard must survive this short-lived STA process.
+                Marshal.ThrowExceptionForHR(OleFlushClipboard());
+                Console.WriteLine(commandVerb);
+            }
             // Some extensions create modeless dialogs; keep their STA message pump alive.
             while (HasOwnedWindow())
             {
@@ -224,6 +253,7 @@ internal sealed class ShellMenu : Form
     }
 
     private delegate bool EnumWindowProc(IntPtr window, IntPtr data);
+    [DllImport("ole32.dll")] private static extern int OleFlushClipboard();
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] private static extern int SHParseDisplayName(string name, IntPtr bind, out IntPtr pidl, uint attributes, out uint result);
     [DllImport("shell32.dll")] private static extern int SHBindToParent(IntPtr pidl, ref Guid iid, out IShellFolder parent, out IntPtr child);
     [DllImport("user32.dll")] private static extern IntPtr CreatePopupMenu();

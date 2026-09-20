@@ -15,9 +15,18 @@ const SPECIAL_DIRS = { downloads: null, desktop: null };
 let specialPaths = {};
 let quickAccess  = JSON.parse(localStorage.getItem('quickAccess') || '[]');
 let activePaneId = 0;
-let previewOpen  = false;
+let previewOpen  = true;
+let previewRequest = 0;
+let draggedEntry = null;
 let toolPaths    = JSON.parse(localStorage.getItem('toolPaths') || '{}'); // 外部ツールのexeパス（サクラエディタ等）
 let clipboardItem = null; // { path, cut }
+let clipboardWrite = Promise.resolve();
+function copyEntry(entry, cut) {
+  clipboardItem = { path: entry.fullPath, cut };
+  clipboardWrite = window.api.writeFileClipboard(entry.fullPath, cut).then(result => {
+    if (result.error) alert(`クリップボードに保存できませんでした: ${result.error}`);
+  });
+}
 
 /**
  * 1ペイン分の状態を管理
@@ -214,6 +223,7 @@ async function navigateTo(paneId, newPath, pushHistory = true) {
     return;
   }
 
+  if (tab.path !== newPath) tab.scrollTop = 0;
   tab.path = newPath;
   tab.label = labelOf(newPath);
 
@@ -254,16 +264,63 @@ async function refreshPane(paneId) {
 }
 
 async function pasteInto(paneId, destDir) {
-  if (!clipboardItem) return;
-  const res = clipboardItem.cut
-    ? await window.api.movePath(clipboardItem.path, destDir)
-    : await window.api.copyPath(clipboardItem.path, destDir);
-  if (res && res.error) {
-    alert(`貼り付けに失敗しました: ${res.error}`);
-  } else if (clipboardItem.cut) {
-    clipboardItem = null;
+  await clipboardWrite;
+  const clipboard = await window.api.readFileClipboard();
+  if (clipboard.error) { alert(`クリップボードを取得できませんでした: ${clipboard.error}`); return; }
+  for (const source of clipboard.paths) {
+    const res = clipboard.cut ? await window.api.movePath(source, destDir) : await window.api.copyPath(source, destDir);
+    if (res && res.error) { alert(`貼り付けに失敗しました: ${res.error}`); break; }
   }
+  if (clipboard.cut) clipboardItem = null;
+  await Promise.all(panes.map(pane => refreshPane(pane.id)));
+}
+
+function selectEntry(paneId, tab, index) {
+  setActivePane(paneId);
+  tab.selectedIdx = index;
+  document.querySelectorAll(`#pane-${paneId} tbody tr`).forEach((row, i) => {
+    row.classList.toggle('selected', i === index);
+  });
+}
+
+function selectedEntry(tab) {
+  return sortEntries(tab.entries, tab.sortCol, tab.sortDir)[tab.selectedIdx];
+}
+
+async function renameEntry(paneId, entry) {
+  // フルファイル名を入力欄へ渡し、拡張子を含めて編集できるようにする。
+  const name = await showInputDialog('新しい名前（拡張子を含む）', entry.name);
+  if (!name || name === entry.name) return;
+  const result = await window.api.renamePath(entry.fullPath, name);
+  if (result.error) alert(`名前の変更に失敗しました: ${result.error}`);
   await refreshPane(paneId);
+}
+
+function setupFileDrop(element, paneId, destination) {
+  element.addEventListener('dragover', event => {
+    if (!draggedEntry) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
+    element.classList.add('drop-target');
+  });
+  element.addEventListener('dragleave', event => {
+    if (!element.contains(event.relatedTarget)) element.classList.remove('drop-target');
+  });
+  element.addEventListener('drop', async event => {
+    if (!draggedEntry) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const source = draggedEntry;
+    draggedEntry = null;
+    document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    const result = event.shiftKey
+      ? await window.api.movePath(source.fullPath, destination)
+      : await window.api.copyPath(source.fullPath, destination);
+    if (result.error) alert(`操作に失敗しました: ${result.error}`);
+    setActivePane(paneId);
+    await Promise.all(panes.map(pane => refreshPane(pane.id)));
+  });
 }
 
 async function deleteEntry(paneId, entry) {
@@ -371,11 +428,9 @@ async function showFileSystemMenu(event, paneId, tab, entry) {
     if (result.error) throw new Error(result.error);
     if (result.canceled) return;
     if (result.action === 'rename' && entry) {
-      const name = await showInputDialog('新しい名前を入力してください', entry.name);
-      if (name && name !== entry.name) {
-        const renamed = await window.api.renamePath(entry.fullPath, name);
-        if (renamed.error) alert(`名前の変更に失敗しました: ${renamed.error}`);
-      }
+      await renameEntry(paneId, entry);
+    } else if ((result.action === 'copy' || result.action === 'cut') && entry) {
+      clipboardItem = { path: entry.fullPath, cut: result.action === 'cut' };
     } else if (result.action === 'open' && entry) {
       await navigateTo(paneId, entry.fullPath);
     }
@@ -411,8 +466,9 @@ function buildFileCtxMenuItems(paneId, tab, entry) {
     items.push({ sep: true });
   }
   items.push(
-    { label: '📋 コピー', action: () => { clipboardItem = { path: entry.fullPath, cut: false }; } },
-    { label: '✂ 切り取り', action: () => { clipboardItem = { path: entry.fullPath, cut: true }; } },
+    { label: '名前の変更（拡張子を含む）', action: () => renameEntry(paneId, entry) },
+    { label: '📋 コピー', action: () => copyEntry(entry, false) },
+    { label: '✂ 切り取り', action: () => copyEntry(entry, true) },
     { sep: true },
     { label: '📌 貼り付け', disabled: !clipboardItem, action: () => pasteInto(paneId, tab.path) },
     { sep: true },
@@ -752,6 +808,8 @@ function renderPane(paneId) {
   // ─ ファイルリスト ─
   const wrap = document.createElement('div');
   wrap.className = 'file-list-wrap';
+  wrap.addEventListener('scroll', () => { tab.scrollTop = wrap.scrollTop; });
+  setupFileDrop(wrap, paneId, tab.path);
 
   const sorted = sortEntries(tab.entries, tab.sortCol, tab.sortDir);
 
@@ -833,9 +891,7 @@ function renderPane(paneId) {
     // クリック
     tr.addEventListener('click', async (e) => {
       e.stopPropagation();
-      setActivePane(paneId);
-      tab.selectedIdx = idx;
-      renderPane(paneId);
+      selectEntry(paneId, tab, idx);
       await showPreview(entry);
     });
 
@@ -850,12 +906,22 @@ function renderPane(paneId) {
     tr.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      setActivePane(paneId);
-      tab.selectedIdx = idx;
-      renderPane(paneId);
+      selectEntry(paneId, tab, idx);
       showFileSystemMenu(e, paneId, tab, entry);
     });
 
+    tr.draggable = true;
+    tr.addEventListener('dragstart', event => {
+      selectEntry(paneId, tab, idx);
+      draggedEntry = entry;
+      event.dataTransfer.effectAllowed = 'copyMove';
+      event.dataTransfer.setData('application/x-yotsumado-path', entry.fullPath);
+    });
+    tr.addEventListener('dragend', () => {
+      draggedEntry = null;
+      document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    });
+    if (entry.isDir) setupFileDrop(tr, paneId, entry.fullPath);
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -879,9 +945,10 @@ function renderPane(paneId) {
   });
 
   el.appendChild(wrap);
+  wrap.scrollTop = tab.scrollTop || 0;
 
   // クリックでアクティブ化
-  el.addEventListener('click', () => setActivePane(paneId));
+  el.onclick = () => setActivePane(paneId);
 
   savePaneState();
 }
@@ -993,40 +1060,47 @@ function closeCtxMenu() {
 
 // ── プレビュー ───────────────────────────────────────
 async function showPreview(entry) {
+  const request = ++previewRequest;
   // 閉じているときは開かない。内容だけ裏で更新する
   const titleEl   = document.getElementById('preview-title');
   const contentEl = document.getElementById('preview-content');
-  titleEl.textContent = entry.name;
-  contentEl.innerHTML = '';
-
-  if (entry.isDir) {
-    contentEl.innerHTML = '<div class="preview-nopreview">📁 フォルダ</div>';
-    return;
-  }
-
   const ext = extOf(entry.name);
-
-  if (IMAGE_EXTS.has(ext)) {
-    const data = await window.api.readImage(entry.fullPath);
-    if (typeof data === 'string' && data.startsWith('data:')) {
+  const message = text => {
+    const el = document.createElement('div');
+    el.className = 'preview-nopreview';
+    el.textContent = text;
+    return el;
+  };
+  let next;
+  // 読み込み中は現在の内容と高さを保つ。画像のデコード完了後にまとめて差し替える。
+  try {
+    if (entry.isDir) {
+      next = message('📁 フォルダ');
+    } else if (IMAGE_EXTS.has(ext)) {
+      const data = await window.api.readImage(entry.fullPath);
+      if (request !== previewRequest) return;
+      if (typeof data !== 'string' || !data.startsWith('data:')) throw new Error('Image read failed');
       const img = document.createElement('img');
       img.src = data;
-      contentEl.appendChild(img);
-    } else {
-      contentEl.innerHTML = '<div class="preview-nopreview">読み込み失敗</div>';
-    }
-  } else if (TEXT_EXTS.has(ext)) {
-    const text = await window.api.readText(entry.fullPath);
-    if (typeof text === 'string') {
+      img.alt = entry.name;
+      await img.decode();
+      next = img;
+    } else if (TEXT_EXTS.has(ext)) {
+      const text = await window.api.readText(entry.fullPath);
+      if (request !== previewRequest) return;
+      if (typeof text !== 'string') throw new Error('Text read failed');
       const pre = document.createElement('pre');
       pre.textContent = text.length > 50000 ? text.slice(0, 50000) + '\n...(省略)' : text;
-      contentEl.appendChild(pre);
+      next = pre;
     } else {
-      contentEl.innerHTML = '<div class="preview-nopreview">読み込み失敗</div>';
+      next = message(`プレビュー非対応 .${ext}`);
     }
-  } else {
-    contentEl.innerHTML = `<div class="preview-nopreview">プレビュー非対応<br>.${ext}</div>`;
+  } catch (_) {
+    next = message('読み込み失敗');
   }
+  if (request !== previewRequest) return;
+  contentEl.replaceChildren(next);
+  titleEl.textContent = entry.name;
 }
 
 function setupPreviewToggle() {
@@ -1049,8 +1123,25 @@ function togglePreview() {
 
 // ── キーボードショートカット ──────────────────────
 function onKeyDown(e) {
+  if (e.target.closest?.('input, textarea, [contenteditable="true"]') ||
+      document.getElementById('input-dialog-overlay').style.display !== 'none') return;
   const pane = panes[activePaneId];
   const tab  = pane?.activeTab;
+  if (!tab) return;
+  const key = e.key.toLowerCase();
+  if (e.ctrlKey && (key === 'c' || key === 'x')) {
+    e.preventDefault();
+    const entry = selectedEntry(tab);
+    if (entry) copyEntry(entry, key === 'x');
+    return;
+  }
+  if (e.ctrlKey && key === 'v') { e.preventDefault(); pasteInto(activePaneId, tab.path); return; }
+  if (e.key === 'F2') {
+    e.preventDefault();
+    const entry = selectedEntry(tab);
+    if (entry) renameEntry(activePaneId, entry);
+    return;
+  }
 
   // Alt+左右 = 戻る/進む
   if (e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); goBack(activePaneId); return; }
