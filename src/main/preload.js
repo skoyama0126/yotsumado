@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  writeFileClipboard: (p, cut) => ipcRenderer.invoke('write-file-clipboard', p, cut),
+  readFileClipboard: () => ipcRenderer.invoke('read-file-clipboard'),
   showShellMenu: (p, background) => ipcRenderer.invoke('show-shell-menu', p, background),
   renamePath: (p, name) => ipcRenderer.invoke('rename-path', p, name),
   readDir:       (p) => ipcRenderer.invoke('read-dir', p),

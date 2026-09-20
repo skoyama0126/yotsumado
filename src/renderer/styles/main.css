@@ -79,9 +79,12 @@ textarea,
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   flex-shrink: 0;
 }
+
+#sidebar-navigation { flex: 1; min-height: 0; overflow-y: auto; }
+.drop-target { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--bg4); }
 
 .sidebar-section {
   padding: 10px 0 6px;
@@ -443,16 +446,17 @@ textarea,
 
 /* ── Preview ── */
 #preview-panel {
-  width: var(--preview-w);
-  min-width: 180px;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: 34vh;
   background: var(--bg2);
-  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width 0.2s ease;
 }
-#preview-panel.hidden { width: 0; overflow: hidden; min-width: 0; border: none; }
+#preview-panel.hidden { display: none; }
 
 #preview-header {
   height: var(--header-h);
@@ -471,14 +475,20 @@ textarea,
 #preview-close:hover { background: var(--bg4); color: var(--text); }
 
 #preview-content {
-  flex: 1;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 10px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  display: block;
 }
-#preview-content img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+#preview-content img {
+  max-width: 100%;
+  max-height: max(80px, calc(34vh - var(--header-h) - 21px));
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+  margin: 0 auto;
+}
 #preview-content pre {
   font-family: 'Consolas', monospace;
   font-size: 11px;
@@ -497,10 +507,8 @@ textarea,
 
 /* Preview toggle button */
 #preview-toggle-btn {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  width: 100%;
+  flex-shrink: 0;
   background: var(--bg4);
   border: 1px solid var(--border);
   border-right: none;

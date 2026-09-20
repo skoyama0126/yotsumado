@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
 const APP_ID = 'com.myexplorer.app';
+const { transferPath } = require('./file-transfer');
 
 // 改名前の保存先を維持し、クイックアクセス・タブ・テーマの設定を引き継ぐ。
 app.setPath('userData', path.join(app.getPath('appData'), 'myexplorer'));
@@ -41,6 +42,24 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 
 // Windows Shellのメニューを別プロセスで表示する（7-Zipなどの拡張にも対応）。
 let shellMenuRunning = false;
+function clipboardHelper(mode, target = '.') {
+  const helper = app.isPackaged
+    ? path.join(process.resourcesPath, 'native', 'Yotsumado.ShellMenu.exe')
+    : path.join(__dirname, '../../build/native/Yotsumado.ShellMenu.exe');
+  return new Promise((resolve, reject) => execFile(helper, [mode, target],
+    { windowsHide: true, encoding: 'utf8' }, (error, stdout, stderr) =>
+      error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout.replace(/^\uFEFF/, '').trim())));
+}
+ipcMain.handle('write-file-clipboard', async (_, source, cut) => {
+  try { await clipboardHelper(cut ? 'clipboard-cut' : 'clipboard-copy', source); return { ok: true }; }
+  catch (error) { return { error: error.message }; }
+});
+ipcMain.handle('read-file-clipboard', async () => {
+  try {
+    const lines = (await clipboardHelper('clipboard-read')).split(/\r?\n/);
+    return { cut: lines[0] === 'cut', paths: lines.slice(1).filter(Boolean).map(line => Buffer.from(line, 'base64').toString('utf8')) };
+  } catch (error) { return { error: error.message }; }
+});
 ipcMain.handle('show-shell-menu', async (_, targetPath, background) => {
   if (shellMenuRunning) return { canceled: true };
   if (process.platform !== 'win32') return { error: 'Windows専用の機能です。' };
@@ -167,9 +186,7 @@ ipcMain.handle('read-image', async (_, filePath) => {
 // コピー（ファイル・フォルダ再帰対応）
 ipcMain.handle('copy-path', async (_, srcPath, destDir) => {
   try {
-    const dest = path.join(destDir, path.basename(srcPath));
-    if (dest === srcPath) throw new Error('コピー元とコピー先が同じです');
-    fs.cpSync(srcPath, dest, { recursive: true, errorOnExist: true });
+    await transferPath(srcPath, destDir);
     return { ok: true };
   } catch (err) {
     return { error: err.message };
@@ -179,18 +196,7 @@ ipcMain.handle('copy-path', async (_, srcPath, destDir) => {
 // 移動（同ドライブはrename、跨ぐ場合はcopy+delete）
 ipcMain.handle('move-path', async (_, srcPath, destDir) => {
   try {
-    const dest = path.join(destDir, path.basename(srcPath));
-    if (dest === srcPath) throw new Error('移動元と移動先が同じです');
-    try {
-      fs.renameSync(srcPath, dest);
-    } catch (err) {
-      if (err.code === 'EXDEV') {
-        fs.cpSync(srcPath, dest, { recursive: true, errorOnExist: true });
-        fs.rmSync(srcPath, { recursive: true, force: true });
-      } else {
-        throw err;
-      }
-    }
+    await transferPath(srcPath, destDir, true);
     return { ok: true };
   } catch (err) {
     return { error: err.message };

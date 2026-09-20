@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8"/>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
   <title>ヨツマド</title>
   <link rel="stylesheet" href="styles/main.css"/>
 </head>
@@ -10,6 +10,7 @@
   <div id="app">
     <!-- 左：クイックアクセス -->
     <aside id="sidebar">
+      <div id="sidebar-navigation">
       <div class="sidebar-section">
         <div class="sidebar-heading-row">
           <div class="sidebar-heading">クイックアクセス</div>
@@ -37,6 +38,15 @@
           <div class="theme-swatch" data-theme-value="dark" title="紺"><span class="swatch-dot swatch-dark"></span></div>
         </div>
       </div>
+      </div>
+      <section id="preview-panel">
+        <div id="preview-header">
+          <span id="preview-title">プレビュー</span>
+          <button id="preview-close" title="プレビューを閉じる">✕</button>
+        </div>
+        <div id="preview-content"><div class="preview-nopreview">ファイルを選択すると表示します</div></div>
+      </section>
+      <button id="preview-toggle-btn" title="プレビューを開く">プレビューを開く</button>
     </aside>
 
     <!-- 中央：4ペイン -->
@@ -54,18 +64,7 @@
       </div>
     </main>
 
-    <!-- 右：プレビュー -->
-    <aside id="preview-panel" class="hidden">
-      <div id="preview-header">
-        <span id="preview-title">プレビュー</span>
-        <button id="preview-close">✕</button>
-      </div>
-      <div id="preview-content"></div>
-    </aside>
   </div>
-
-  <!-- プレビュー開くボタン（閉じてるとき） -->
-  <button id="preview-toggle-btn" class="visible" title="プレビューを開く">▶</button>
 
   <!-- インライン入力ダイアログ -->
   <div id="input-dialog-overlay" style="display:none">
