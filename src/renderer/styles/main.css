@@ -368,12 +368,14 @@ textarea,
 /* File list */
 .file-list-wrap {
   flex: 1;
+  container-type: inline-size;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .file-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
@@ -391,7 +393,7 @@ textarea,
   white-space: nowrap;
   z-index: 1;
 }
-.file-table thead th.resizable { position: relative; }
+.file-table thead th.resizable { position: sticky; }
 .col-resize-handle {
   position: absolute;
   top: 0;
@@ -425,18 +427,19 @@ textarea,
 }
 
 .file-table td.col-name {
-  max-width: none;
-  width: 99%;
+  overflow: hidden;
+}
+.file-name-cell {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .file-icon { font-size: 13px; flex-shrink: 0; }
-.file-name-text { overflow: hidden; text-overflow: ellipsis; }
+.file-name-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.col-size  { width: var(--col-size-w, 90px); max-width: var(--col-size-w, 90px); text-align: right; color: var(--text2); font-size: 11px; font-family: 'Consolas', monospace; }
-.col-mtime { width: var(--col-mtime-w, 140px); max-width: var(--col-mtime-w, 140px); color: var(--text2); font-size: 11px; font-family: 'Consolas', monospace; }
+.col-size  { width: clamp(65px, var(--col-size-w, 90px), 25cqw); text-align: right; color: var(--text2); font-size: 11px; font-family: 'Consolas', monospace; }
+.col-mtime { width: clamp(140px, var(--col-mtime-w, 140px), 45cqw); color: var(--text2); font-size: 11px; font-family: 'Consolas', monospace; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

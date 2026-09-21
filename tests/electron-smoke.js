@@ -14,6 +14,7 @@ const entries = Array.from({ length: 110 }, (_, i) => ({
   isDir: true, size: null, mtime: 0,
 }));
 entries.push({ name: 'sample.txt', fullPath: 'C:\\sample.txt', isDir: false, size: 12, mtime: 0 });
+entries[0].name += '-長いファイル名'.repeat(45);
 ipcMain.handle('get-special-paths', () => ({}));
 ipcMain.handle('get-drives', () => []);
 ipcMain.handle('read-dir', () => entries);
@@ -29,6 +30,7 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1400, height: 900,
     webPreferences: { preload: path.resolve(__dirname, '../src/main/preload.js'), contextIsolation: true, nodeIntegration: false } });
   try {
+    win.webContents.on('console-message', (_, level, message) => { if (level >= 2) console.error(message); });
     await win.loadFile(path.resolve(__dirname, '../src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(async () => {
       const check = (value, message) => { if (!value) throw Error(message); };
@@ -93,6 +95,28 @@ app.whenReady().then(async () => {
     })()`);
     if (calls.filter(c => c[0] === 'copy-path').length !== 2 || calls.filter(c => c[0] === 'move-path').length !== 1 ||
         !calls.some(c => c[0] === 'rename-path' && c[2] === 'renamed.md')) throw Error('Incorrect IPC calls: ' + JSON.stringify(calls));
+    win.setSize(900, 900);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    await win.webContents.executeJavaScript(`(() => {
+      const check = (v, m) => { if (!v) throw Error(m); };
+      for (const pane of document.querySelectorAll('.pane')) {
+        const table = pane.querySelector('.file-table');
+        const bounds = pane.querySelector('.file-list-wrap').getBoundingClientRect();
+        check(table.getBoundingClientRect().right <= bounds.right + 1, 'long name expanded table');
+        const cells = table.querySelectorAll('tbody tr:first-child td');
+        check(cells[2].getBoundingClientRect().right <= bounds.right + 1, 'date column is outside pane');
+        const name = cells[0].querySelector('.file-name-text');
+        check(name.scrollWidth > name.clientWidth && getComputedStyle(name).textOverflow === 'ellipsis', 'long name is not truncated');
+        check(name.title.includes('長いファイル名'), 'full filename tooltip missing');
+      }
+      const handle = document.querySelector('#pane-0 th .col-resize-handle');
+      const before = document.querySelector('#pane-0 td.col-name').getBoundingClientRect().width;
+      handle.dispatchEvent(new MouseEvent('mousedown', {clientX:100,bubbles:true}));
+      document.dispatchEvent(new MouseEvent('mousemove', {clientX:75,bubbles:true}));
+      document.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+      check(document.querySelector('#pane-0 td.col-name').getBoundingClientRect().width < before, 'name divider did not resize');
+    })()`);
+    console.log('PASS: long filename truncation and column resizing at 900px window width');
     const image = await win.webContents.capturePage();
     fs.mkdirSync(path.resolve(__dirname, '../dist'), { recursive: true });
     fs.writeFileSync(path.resolve(__dirname, '../dist/ui-smoke.png'), image.toPNG());

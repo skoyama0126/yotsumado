@@ -528,14 +528,16 @@ function hasCustomColumnWidth(varName) {
   return localStorage.getItem(`colWidth:${varName}`) !== null;
 }
 
-function startColumnResize(e, varName) {
+function startColumnResize(e, varName, direction = 1) {
   const startX = e.clientX;
-  const startWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(varName)) || 90;
+  const header = e.target.closest('th');
+  const widthHeader = direction === -1 ? header.nextElementSibling : header;
+  const startWidth = widthHeader.getBoundingClientRect().width;
   const handle = e.target;
   handle.classList.add('resizing');
 
   function onMove(ev) {
-    const newWidth = Math.max(50, startWidth + (ev.clientX - startX));
+    const newWidth = Math.max(50, startWidth + direction * (ev.clientX - startX));
     document.documentElement.style.setProperty(varName, `${newWidth}px`);
   }
   function onUp() {
@@ -820,7 +822,7 @@ function renderPane(paneId) {
   const thead = document.createElement('thead');
   const hrow  = document.createElement('tr');
   [
-    { col: 'name', label: 'ファイル名' },
+    { col: 'name', label: 'ファイル名', resizeVar: '--col-size-w' },
     { col: 'size',  label: 'サイズ', resizeVar: '--col-size-w' },
     { col: 'mtime', label: '更新日時', resizeVar: '--col-mtime-w' },
   ].forEach(({ col, label, resizeVar }) => {
@@ -843,11 +845,14 @@ function renderPane(paneId) {
       handle.addEventListener('click', (e) => e.stopPropagation());
       handle.addEventListener('mousedown', (e) => {
         e.stopPropagation();
-        startColumnResize(e, resizeVar);
+        startColumnResize(e, resizeVar, col === 'name' ? -1 : 1);
       });
       handle.addEventListener('dblclick', (e) => {
         e.stopPropagation();
-        autoFitColumn(paneId, col, resizeVar);
+        if (col === 'name') {
+          COL_WIDTH_VARS.forEach(key => localStorage.removeItem(`colWidth:${key}`));
+          autoFitUnlockedColumns();
+        } else autoFitColumn(paneId, col, resizeVar);
       });
       th.appendChild(handle);
     }
@@ -871,8 +876,11 @@ function renderPane(paneId) {
     const name = document.createElement('span');
     name.className = 'file-name-text';
     name.textContent = entry.name;
-    tdName.appendChild(icon);
-    tdName.appendChild(name);
+    name.title = entry.name;
+    const nameCell = document.createElement('div');
+    nameCell.className = 'file-name-cell';
+    nameCell.append(icon, name);
+    tdName.appendChild(nameCell);
 
     // サイズ
     const tdSize = document.createElement('td');
