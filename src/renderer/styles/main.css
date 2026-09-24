@@ -436,6 +436,16 @@ textarea,
 }
 
 .file-icon { font-size: 13px; flex-shrink: 0; }
+.file-rename-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg2);
+  border: 1px solid var(--accent);
+  padding: 1px 3px;
+}
 .file-name-text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .col-size  { width: clamp(65px, var(--col-size-w, 90px), 25cqw); text-align: right; color: var(--text2); font-size: 11px; font-family: 'Consolas', monospace; }

@@ -1,6 +1,6 @@
 {
   "name": "yotsumado",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "ヨツマド — 4つのペインで使うWindows向けファイルエクスプローラー",
   "main": "src/main/main.js",
   "scripts": {
