@@ -18,6 +18,11 @@ let activePaneId = 0;
 let previewOpen  = true;
 let previewRequest = 0;
 let draggedEntry = null;
+let renameClickTimer = null;
+function cancelRenameClick() {
+  clearTimeout(renameClickTimer);
+  renameClickTimer = null;
+}
 let toolPaths    = JSON.parse(localStorage.getItem('toolPaths') || '{}'); // 外部ツールのexeパス（サクラエディタ等）
 let clipboardItem = null; // { path, cut }
 let clipboardWrite = Promise.resolve();
@@ -53,6 +58,8 @@ class Pane {
       sortCol: 'name',
       sortDir: 'asc',
       selectedIdx: -1,
+      selectedPaths: new Set(),
+      selectionAnchor: null,
     };
     this.tabs.push(tab);
     this.activeTabId = tab.id;
@@ -135,6 +142,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupContextMenu();
   document.addEventListener('click', closeCtxMenu);
   document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('mousedown', cancelRenameClick, true);
   window.addEventListener('beforeunload', savePaneState);
 
   // 各ペイン初期ロード
@@ -215,6 +223,7 @@ function sortEntries(entries, col, dir) {
 
 // ── ナビゲーション ──────────────────────────────────
 async function navigateTo(paneId, newPath, pushHistory = true) {
+  cancelRenameClick();
   const pane = panes[paneId];
   const tab  = pane.activeTab;
 
@@ -241,6 +250,8 @@ async function navigateTo(paneId, newPath, pushHistory = true) {
   }
   tab.entries = result || [];
   tab.selectedIdx = -1;
+  tab.selectedPaths.clear();
+  tab.selectionAnchor = null;
   autoFitUnlockedColumns();
   renderPane(paneId);
 }
@@ -275,16 +286,42 @@ async function pasteInto(paneId, destDir) {
   await Promise.all(panes.map(pane => refreshPane(pane.id)));
 }
 
-function selectEntry(paneId, tab, index) {
-  setActivePane(paneId);
-  tab.selectedIdx = index;
+function updateSelection(paneId, tab) {
+  const entries = sortEntries(tab.entries, tab.sortCol, tab.sortDir);
   document.querySelectorAll(`#pane-${paneId} tbody tr`).forEach((row, i) => {
-    row.classList.toggle('selected', i === index);
+    const selected = tab.selectedPaths.has(entries[i].fullPath);
+    row.classList.toggle('selected', selected);
+    row.setAttribute('aria-selected', String(selected));
   });
 }
 
+function selectedEntries(tab) {
+  return sortEntries(tab.entries, tab.sortCol, tab.sortDir).filter(entry => tab.selectedPaths.has(entry.fullPath));
+}
+
+function selectEntry(paneId, tab, index, modifiers = {}) {
+  setActivePane(paneId);
+  const entries = sortEntries(tab.entries, tab.sortCol, tab.sortDir);
+  const target = entries[index].fullPath;
+  const anchor = entries.findIndex(entry => entry.fullPath === tab.selectionAnchor);
+  if (modifiers.shiftKey && anchor >= 0) {
+    if (!modifiers.ctrlKey) tab.selectedPaths.clear();
+    entries.slice(Math.min(anchor, index), Math.max(anchor, index) + 1).forEach(entry => tab.selectedPaths.add(entry.fullPath));
+  } else if (modifiers.ctrlKey) {
+    if (tab.selectedPaths.has(target)) tab.selectedPaths.delete(target);
+    else tab.selectedPaths.add(target);
+    tab.selectionAnchor = target;
+  } else {
+    tab.selectedPaths = new Set([target]);
+    tab.selectionAnchor = target;
+  }
+  tab.selectedIdx = index;
+  updateSelection(paneId, tab);
+}
+
 function selectedEntry(tab) {
-  return sortEntries(tab.entries, tab.sortCol, tab.sortDir)[tab.selectedIdx];
+  const entries = selectedEntries(tab);
+  return entries.length === 1 ? entries[0] : undefined;
 }
 
 async function renameEntry(paneId, entry) {
@@ -294,6 +331,42 @@ async function renameEntry(paneId, entry) {
   const result = await window.api.renamePath(entry.fullPath, name);
   if (result.error) alert(`名前の変更に失敗しました: ${result.error}`);
   await refreshPane(paneId);
+}
+
+function startInlineRename(paneId, tab, entry, label, row) {
+  if (!label.isConnected || selectedEntry(tab)?.fullPath !== entry.fullPath || activePaneId !== paneId) return;
+  const input = document.createElement('input');
+  input.className = 'file-rename-input';
+  input.value = entry.name;
+  input.setAttribute('aria-label', '名前の変更（拡張子を含む）');
+  row.draggable = false;
+  label.replaceWith(input);
+  let finished = false;
+  const finish = async commit => {
+    if (finished) return;
+    finished = true;
+    const name = input.value;
+    input.replaceWith(label);
+    row.draggable = true;
+    if (!commit || name === entry.name) return;
+    try {
+      const result = await window.api.renamePath(entry.fullPath, name);
+      if (result.error) { alert(`名前の変更に失敗しました: ${result.error}`); return; }
+      await refreshPane(paneId);
+    } catch (error) { alert(`名前の変更に失敗しました: ${error.message}`); }
+  };
+  ['click', 'dblclick', 'contextmenu', 'mousedown'].forEach(type => input.addEventListener(type, event => event.stopPropagation()));
+  input.addEventListener('keydown', event => {
+    event.stopPropagation();
+    if (event.key === 'Enter' || event.key === 'Escape') {
+      event.preventDefault();
+      finish(event.key === 'Enter');
+    }
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.focus();
+  const dot = entry.isDir ? -1 : entry.name.lastIndexOf('.');
+  input.setSelectionRange(0, dot > 0 ? dot : entry.name.length);
 }
 
 function setupFileDrop(element, paneId, destination) {
@@ -324,10 +397,28 @@ function setupFileDrop(element, paneId, destination) {
 }
 
 async function deleteEntry(paneId, entry) {
-  if (!confirm(`「${entry.name}」をゴミ箱に移動しますか？`)) return;
-  const res = await window.api.deletePath(entry.fullPath);
-  if (res && res.error) alert(`削除に失敗しました: ${res.error}`);
-  await refreshPane(paneId);
+  await deleteEntries(paneId, [entry]);
+}
+
+let deletionRunning = false;
+async function deleteEntries(paneId, entries) {
+  if (deletionRunning || !entries.length) return;
+  const targets = [...entries];
+  const names = targets.slice(0, 5).map(entry => entry.name).join('\n');
+  const extra = targets.length > 5 ? `\nほか${targets.length - 5}件` : '';
+  if (!confirm(`${targets.length}件をゴミ箱に移動しますか？\n\n${names}${extra}`)) return;
+  deletionRunning = true;
+  const failures = [];
+  try {
+    for (const entry of targets) {
+      try {
+        const result = await window.api.deletePath(entry.fullPath);
+        if (result?.error) failures.push(`${entry.name}: ${result.error}`);
+      } catch (error) { failures.push(`${entry.name}: ${error.message}`); }
+    }
+    await Promise.all(panes.map(pane => refreshPane(pane.id)));
+    if (failures.length) alert(`${targets.length - failures.length}件をゴミ箱へ移動しました。\n失敗した${failures.length}件:\n${failures.join('\n')}`);
+  } finally { deletionRunning = false; }
 }
 
 // ── 外部ツール連携（サクラエディタ・TortoiseGitなど） ──
@@ -419,6 +510,14 @@ async function createNewTextFile(paneId, currentPath) {
 // 空白部分の右クリックメニュー（何も選択していない状態）
 async function showFileSystemMenu(event, paneId, tab, entry) {
   closeCtxMenu();
+  const selection = selectedEntries(tab);
+  if (selection.length > 1) {
+    showCtxMenu(event.clientX, event.clientY, [
+      { label: `${selection.length}件をゴミ箱へ移動`, action: () => deleteEntries(paneId, selection) },
+      { label: '選択を解除', action: () => { tab.selectedPaths.clear(); tab.selectionAnchor = null; updateSelection(paneId, tab); } },
+    ]);
+    return;
+  }
   // Alt+右クリックでは従来のヨツマド用メニューを表示する。
   const fallback = () => showCtxMenu(event.clientX, event.clientY,
     entry ? buildFileCtxMenuItems(paneId, tab, entry) : buildEmptyAreaCtxMenuItems(paneId, tab));
@@ -664,6 +763,7 @@ function renderAllPanes() {
 
 // ── 1ペイン描画 ──────────────────────────────────────
 function renderPane(paneId) {
+  cancelRenameClick();
   const pane    = panes[paneId];
   const el      = document.getElementById(`pane-${paneId}`);
   const tab     = pane.activeTab;
@@ -865,7 +965,8 @@ function renderPane(paneId) {
   const tbody = document.createElement('tbody');
   sorted.forEach((entry, idx) => {
     const tr = document.createElement('tr');
-    if (tab.selectedIdx === idx) tr.classList.add('selected');
+    if (tab.selectedPaths.has(entry.fullPath)) tr.classList.add('selected');
+    tr.setAttribute('aria-selected', String(tab.selectedPaths.has(entry.fullPath)));
 
     // 名前セル
     const tdName = document.createElement('td');
@@ -899,13 +1000,18 @@ function renderPane(paneId) {
     // クリック
     tr.addEventListener('click', async (e) => {
       e.stopPropagation();
-      selectEntry(paneId, tab, idx);
+      cancelRenameClick();
+      const renameClick = selectedEntry(tab)?.fullPath === entry.fullPath &&
+        e.target === name && e.detail === 1 && !e.ctrlKey && !e.shiftKey && !e.altKey;
+      selectEntry(paneId, tab, idx, e);
+      if (renameClick) renameClickTimer = setTimeout(() => startInlineRename(paneId, tab, entry, name, tr), 600);
       await showPreview(entry);
     });
 
     // ダブルクリック
     tr.addEventListener('dblclick', async (e) => {
       e.stopPropagation();
+      cancelRenameClick();
       if (entry.isDir) await navigateTo(paneId, entry.fullPath);
       else await window.api.openFile(entry.fullPath);
     });
@@ -914,12 +1020,14 @@ function renderPane(paneId) {
     tr.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      selectEntry(paneId, tab, idx);
+      if (!tab.selectedPaths.has(entry.fullPath)) selectEntry(paneId, tab, idx);
+      else setActivePane(paneId);
       showFileSystemMenu(e, paneId, tab, entry);
     });
 
     tr.draggable = true;
     tr.addEventListener('dragstart', event => {
+      cancelRenameClick();
       selectEntry(paneId, tab, idx);
       draggedEntry = entry;
       event.dataTransfer.effectAllowed = 'copyMove';
@@ -1131,12 +1239,30 @@ function togglePreview() {
 
 // ── キーボードショートカット ──────────────────────
 function onKeyDown(e) {
+  cancelRenameClick();
   if (e.target.closest?.('input, textarea, [contenteditable="true"]') ||
       document.getElementById('input-dialog-overlay').style.display !== 'none') return;
   const pane = panes[activePaneId];
   const tab  = pane?.activeTab;
   if (!tab) return;
   const key = e.key.toLowerCase();
+  if (e.key === 'Backspace' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    if (!e.repeat) goBack(activePaneId);
+    return;
+  }
+  if (e.ctrlKey && key === 'a') {
+    e.preventDefault();
+    tab.selectedPaths = new Set(tab.entries.map(entry => entry.fullPath));
+    tab.selectionAnchor = sortEntries(tab.entries, tab.sortCol, tab.sortDir)[0]?.fullPath || null;
+    updateSelection(activePaneId, tab);
+    return;
+  }
+  if (e.key === 'Delete') { e.preventDefault(); deleteEntries(activePaneId, selectedEntries(tab)); return; }
+  if (e.key === 'Escape') {
+    tab.selectedPaths.clear(); tab.selectionAnchor = null;
+    updateSelection(activePaneId, tab); closeCtxMenu(); return;
+  }
   if (e.ctrlKey && (key === 'c' || key === 'x')) {
     e.preventDefault();
     const entry = selectedEntry(tab);
